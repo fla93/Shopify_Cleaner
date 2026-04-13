@@ -1,0 +1,71 @@
+// Prisma schema for Shopify_Cleaner inventory survey app
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./shopify_cleaner.db"
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+// Note: SQLite does not support enums — role and status are stored as String.
+// Valid values: role = "ADMIN" | "CLERK"; status = "IN_PROGRESS" | "PRESENT" | "NOT_PRESENT" | "NOT_SURE" | "SKIPPED"
+
+model Store {
+  id            Int            @id @default(autoincrement())
+  name          String         @unique
+  createdAt     DateTime       @default(now())
+
+  users         User[]
+  verifications Verification[]
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("CLERK")
+  storeId      Int?
+  createdAt    DateTime @default(now())
+
+  store         Store?         @relation(fields: [storeId], references: [id])
+  verifications Verification[]
+}
+
+model Product {
+  id             Int      @id @default(autoincrement())
+  sku            String   @unique
+  name           String
+  brand          String?
+  category       String?
+  imageUrl       String?
+  theoreticalQty Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  verifications Verification[]
+}
+
+model Verification {
+  id          Int      @id @default(autoincrement())
+  productId   Int
+  storeId     Int
+  userId      Int
+  status      String
+  detectedQty Int?
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+  store   Store   @relation(fields: [storeId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([productId, storeId])
+  @@index([storeId])
+  @@index([userId])
+  @@index([status])
+  @@index([updatedAt])
+}

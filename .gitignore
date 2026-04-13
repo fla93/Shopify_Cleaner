@@ -1,0 +1,50 @@
+node_modules/
+.next/
+.env
+.env.local
+
+# Playwright
+tests/.auth/
+playwright-report/
+test-results/
+venv/
+ai-env/
+__pycache__/
+*.pyc
+.env
+.ipynb_checkpoints/
+.DS_Store
+.vscode/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+.env
+venv/
+ai-env/
+
+# macOS
+.DS_Store
+._*
+
+# Node / Next
+node_modules/
+.next/
+coverage/
+dist/
+
+# Build / cache
+*.tsbuildinfo
+
+# Test artifacts
+playwright-report/
+test-results/
+
+# Local editor
+.vscode/
+
+# Logs
+*.log
