@@ -182,63 +182,175 @@ Il sito `https://inventory.genioengineering.com` richiede due processi attivi:
 1. **Next.js** — il server dell'app
 2. **Cloudflare Tunnel** — espone il server su internet tramite HTTPS
 
-### Avvio
+### Setup una-tantum del tunnel (solo la prima volta)
+
+Il tunnel usa un `config.yml` locale con le ingress rules. Se non esiste ancora:
+
+```bash
+# Crea il file di configurazione
+cat > ~/.cloudflared/config.yml << 'EOF'
+tunnel: shopify-cleaner
+ingress:
+  - hostname: inventory.genioengineering.com
+    service: http://localhost:3000
+  - service: http_status:404
+EOF
+```
+
+Questo file è già presente sulla macchina WSL di sviluppo.
+
+---
+
+### Mac
+
+#### Avvio
 
 ```bash
 # 1. Build (solo se hai modificato il codice)
 npm run build
 
-# 2. Avvia Next.js (senza standby del Mac)
+# 2. Avvia Next.js (caffeinate impedisce lo standby)
 nohup caffeinate -i npm start > /tmp/nextjs.log 2>&1 &
 
 # 3. Avvia il tunnel Cloudflare
-nohup cloudflared tunnel run shopify-cleaner > /tmp/cloudflared.log 2>&1 &
+nohup cloudflared tunnel --config ~/.cloudflared/config.yml run --token $(cloudflared tunnel token shopify-cleaner) > /tmp/cloudflared.log 2>&1 &
 ```
 
 Oppure tutto in una riga:
 
 ```bash
-npm run build && nohup caffeinate -i npm start > /tmp/nextjs.log 2>&1 & sleep 5 && nohup cloudflared tunnel run shopify-cleaner > /tmp/cloudflared.log 2>&1 &
+npm run build && nohup caffeinate -i npm start > /tmp/nextjs.log 2>&1 & sleep 5 && nohup cloudflared tunnel --config ~/.cloudflared/config.yml run --token $(cloudflared tunnel token shopify-cleaner) > /tmp/cloudflared.log 2>&1 &
 ```
 
-### Stop
+#### Stop
 
 ```bash
-# Ferma Next.js (e caffeinate)
 kill $(lsof -ti :3000)
-
-# Ferma il tunnel Cloudflare
 pkill -f "cloudflared tunnel"
 ```
 
-### Verifica stato
+#### Verifica stato
 
 ```bash
-# Next.js attivo?
 lsof -i :3000
+cloudflared tunnel info shopify-cleaner
+tail -f /tmp/nextjs.log
+tail -f /tmp/cloudflared.log
+```
+
+#### Standby
+
+Con `caffeinate -i` il Mac **non va in standby** finché Next.js è attivo. Se va comunque in standby (es. coperchio chiuso), al risveglio Cloudflare Tunnel si riconnette automaticamente e Next.js riprende senza intervento.
+
+> Per un'installazione permanente che sopravvive al riavvio, configura i servizi con `launchd`.
+
+---
+
+### WSL (Windows Subsystem for Linux)
+
+`caffeinate` non è disponibile su WSL. Lo standby è controllato da Windows: WSL si sospende e riprende insieme all'host.
+
+#### Avvio
+
+```bash
+# 1. Build (solo se hai modificato il codice)
+npm run build
+
+# 2. Avvia Next.js in background
+nohup npm start > /tmp/nextjs.log 2>&1 &
+
+# 3. Avvia il tunnel Cloudflare
+nohup cloudflared tunnel --config ~/.cloudflared/config.yml run --token $(cloudflared tunnel token shopify-cleaner) > /tmp/cloudflared.log 2>&1 &
+```
+
+#### Stop
+
+```bash
+kill $(lsof -ti :3000)
+pkill -f "cloudflared tunnel"
+```
+
+#### Verifica stato
+
+```bash
+lsof -i :3000
+cloudflared tunnel info shopify-cleaner
+tail -f /tmp/nextjs.log
+tail -f /tmp/cloudflared.log
+```
+
+#### Standby
+
+Quando Windows va in standby WSL viene sospeso. Al risveglio:
+- **Cloudflare Tunnel** si riconnette automaticamente in pochi secondi
+- **Next.js** riprende senza intervento manuale
+
+Per evitare che Windows vada in standby mentre i server sono attivi, imposta il piano di alimentazione su **Alte prestazioni** oppure esegui da PowerShell (come amministratore):
+
+```powershell
+# Disabilita standby finché la sessione è aperta
+powercfg /change standby-timeout-ac 0
+```
+
+---
+
+### Windows (nativo — PowerShell)
+
+Usa PowerShell. Non sono disponibili `nohup`, `caffeinate`, `lsof` o `pkill`.
+
+#### Avvio
+
+```powershell
+# 1. Build (solo se hai modificato il codice)
+npm run build
+
+# 2. Avvia Next.js in background
+Start-Process -NoNewWindow npm -ArgumentList "start" `
+  -RedirectStandardOutput "$env:TEMP\nextjs.log" `
+  -RedirectStandardError  "$env:TEMP\nextjs-err.log"
+
+# 3. Avvia il tunnel Cloudflare
+$TOKEN = cloudflared tunnel token shopify-cleaner
+Start-Process -NoNewWindow cloudflared `
+  -ArgumentList "tunnel --config `"$env:USERPROFILE\.cloudflared\config.yml`" run --token $TOKEN" `
+  -RedirectStandardOutput "$env:TEMP\cloudflared.log"
+```
+
+#### Stop
+
+```powershell
+# Ferma Next.js (processo sulla porta 3000)
+Stop-Process -Id (Get-NetTCPConnection -LocalPort 3000).OwningProcess -Force
+
+# Ferma il tunnel Cloudflare
+Stop-Process -Name cloudflared -Force
+```
+
+#### Verifica stato
+
+```powershell
+# Next.js attivo?
+Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
 
 # Tunnel attivo?
 cloudflared tunnel info shopify-cleaner
 
 # Log in tempo reale
-tail -f /tmp/nextjs.log
-tail -f /tmp/cloudflared.log
+Get-Content "$env:TEMP\nextjs.log" -Wait
+Get-Content "$env:TEMP\cloudflared.log" -Wait
 ```
 
----
+#### Standby
 
-## Standby del Mac
+Per impedire lo standby di Windows finché i server sono attivi, esegui da PowerShell (come amministratore) prima di avviare:
 
-Con `caffeinate -i` il Mac **non va in standby** finché il processo Next.js è attivo.
+```powershell
+# Disabilita standby su corrente di rete
+powercfg /change standby-timeout-ac 0
 
-Se il Mac va comunque in standby (es. si chiude il coperchio del portatile), al risveglio:
-- **Cloudflare Tunnel** si riconnette automaticamente in pochi secondi
-- **Next.js** rimane attivo (era solo congelato)
-- Il sito torna disponibile senza intervento manuale
-
-Se invece fermi i server manualmente o riavvii il Mac, devi rilanciare i comandi di avvio sopra.
-
-> Per un'installazione permanente che sopravvive al riavvio del Mac, configura i servizi con `launchd` (chiedi a Claude Code).
+# Ripristina dopo aver fermato i server (es. 30 minuti)
+powercfg /change standby-timeout-ac 30
+```
 
 ---
 
